@@ -5,10 +5,12 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -19,10 +21,19 @@ import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 
 public class Counter {
+
+  private final String index = "nutch";
+  private final String type = "doc";
+  private static final String stopwords[] = {"home", "contact", "image", "about", "navigation", "news", "event",
+      "copyright", "registration", "link", "search", "also"};
 
   public Counter() {
   }
@@ -49,7 +60,7 @@ public class Counter {
 
     if(args.length<1)
     {
-      System.out.println("Please input the output path!");
+      System.out.println("Please input the output directory!");
       return;
     }
 
@@ -64,17 +75,47 @@ public class Counter {
 
     if (client != null) {
       System.out.println("ES client created successfully.");
-      counter.sumTerms(client, args[0]);
+      counter.sumTermsForAllRound(client, args[0]);
     }
   }
 
-  public void sumTerms(Client client, String outpath) {
+  public void sumTermsForAllRound(Client client, String outDir)
+  {
+    List<String> segList = getSegList(client);
+    for(String seg:segList)
+    {
+      String outpath = outDir + seg + ".txt";
+      sumTermsForEachRound(client, seg, outpath);
+    }
+    
+    sumTermsForEachRound(client, null, outDir + "agg.txt");
+  }
+
+  public List<String> getSegList(Client client)
+  {
+    SearchResponse sr = client.prepareSearch(index)
+        .setTypes(type).setQuery(QueryBuilders.matchAllQuery())
+        .setSize(0).addAggregation(
+            AggregationBuilders.terms("segs").field("segment").size(0))
+        .execute().actionGet();
+    Terms segs = sr.getAggregations().get("segs");
+    List<String> segList = new ArrayList<>();
+    for (Terms.Bucket entry : segs.getBuckets()) {
+      segList.add(entry.getKey().toString());
+    }
+
+    return segList;    
+  }
+
+  public void sumTermsForEachRound(Client client, String seg, String outpath) {
 
     Map<String, Integer> totalCounts = new HashMap<String, Integer>();
 
-    String index = "nutch";
-    String type = "doc";
-    SearchResponse scrollResp = client.prepareSearch(index).setTypes(type).setQuery(QueryBuilders.matchAllQuery())
+    QueryBuilder filterSearch = QueryBuilders.matchAllQuery();
+    if(seg!=null)
+      filterSearch = QueryBuilders.termQuery("segment", seg);
+
+    SearchResponse scrollResp = client.prepareSearch(index).setTypes(type).setQuery(filterSearch)
         .setFetchSource(null, new String[]{"content"})
         .setScroll(new TimeValue(60000)).setSize(100).execute().actionGet();
 
@@ -90,8 +131,8 @@ public class Counter {
         String text = inlinks + "&&" + outlinks + "&&" + title;
         String[] linksTemrs = text.split("&&");
         for (String term : linksTemrs) {
-          term = term.trim();
-          if(!term.isEmpty()){
+          term = term.toLowerCase().trim();
+          if(!term.isEmpty() && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term)){
             pageTerms.add(term);
           }
         }
@@ -113,8 +154,14 @@ public class Counter {
       }
     }
 
-    // write and save to file
     Map<String, Integer> sortedCounts = Counter.sortByValue(totalCounts);
+    writeToFile(sortedCounts, outpath);
+
+  }
+
+  public void writeToFile(Map<String, Integer> map, String outpath)
+  {
+    // write and save to file    
     File file = new File(outpath);
     if (file.exists()) {
       file.delete();
@@ -123,7 +170,7 @@ public class Counter {
       file.createNewFile();
     } catch (IOException e2) {
       e2.printStackTrace();
-    }
+    } 
 
     FileWriter fw = null;
     BufferedWriter bw = null;
@@ -131,8 +178,8 @@ public class Counter {
       fw = new FileWriter(file.getAbsoluteFile());
       bw = new BufferedWriter(fw);
 
-      for (String term : sortedCounts.keySet()) {
-        bw.write(term + " " + sortedCounts.get(term) + "\n");
+      for (String term : map.keySet()) {
+        bw.write(term + " " + map.get(term) + "\n");
       }
     } catch (IOException e) {
       e.printStackTrace();
@@ -142,7 +189,7 @@ public class Counter {
         {
           bw.close();
         }
-        
+
         if(fw!=null)
         {
           fw.close();
@@ -164,5 +211,15 @@ public class Counter {
             (e1, e2) -> e1, 
             LinkedHashMap::new
             ));
+  }
+
+  public static boolean isStopwords(String str)
+  {
+    for(String s: stopwords)
+    {
+      if(str.contains(s))
+        return true;
+    }
+    return false;
   }
 }
