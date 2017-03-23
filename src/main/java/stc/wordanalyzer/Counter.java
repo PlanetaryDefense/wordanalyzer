@@ -33,7 +33,7 @@ public class Counter {
   private final String index = "nutch";
   private final String type = "doc";
   private static final String stopwords[] = {"home", "contact", "image", "about", "navigation", "news", "event",
-      "copyright", "registration", "link", "search", "also"};
+      "copyright", "registration", "link", "search", "also", "contribution"};
 
   public Counter() {
   }
@@ -88,6 +88,7 @@ public class Counter {
       sumTermsForEachRound(client, seg, outpath);
     }
     
+    //produce the aggregated file
     sumTermsForEachRound(client, null, outDir + "agg.txt");
   }
 
@@ -127,12 +128,17 @@ public class Counter {
         String inlinks = (String) result.get("anchor_inlinks");
         String outlinks = (String) result.get("anchor_outlinks");
         String title = (String) result.get("title");
+        
+        double nutch_score = (double) result.get("nutch_score");
+        
+        if(nutch_score<0.001)   //similarity threshold
+          break;
 
         String text = inlinks + "&&" + outlinks + "&&" + title;
         String[] linksTemrs = text.split("&&");
         for (String term : linksTemrs) {
           term = term.toLowerCase().trim();
-          if(!term.isEmpty() && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term)){
+          if(!term.isEmpty() && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term) && term.length()>1){
             pageTerms.add(term);
           }
         }
