@@ -33,7 +33,8 @@ public class Counter {
   private final String index = "nutch";
   private final String type = "doc";
   private static final String stopwords[] = {"home", "contact", "image", "about", "navigation", "news", "event",
-      "copyright", "registration", "link", "search", "also", "contribution"};
+      "copyright", "registration", "link", "search", "also", "contribution", "help", "page", "logo", "citation", 
+      "wiki"};
 
   public Counter() {
   }
@@ -58,9 +59,9 @@ public class Counter {
 
   public static void main(String[] args) {
 
-    if(args.length<1)
+    if(args.length<2)
     {
-      System.out.println("Please input the output directory!");
+      System.out.println("Please input the output directory and score threshold!");
       return;
     }
 
@@ -75,21 +76,21 @@ public class Counter {
 
     if (client != null) {
       System.out.println("ES client created successfully.");
-      counter.sumTermsForAllRound(client, args[0]);
+      counter.sumTermsForAllRound(client, args[0], Double.parseDouble(args[1]));
     }
   }
 
-  public void sumTermsForAllRound(Client client, String outDir)
+  public void sumTermsForAllRound(Client client, String outDir, double T)
   {
     List<String> segList = getSegList(client);
     for(String seg:segList)
     {
       String outpath = outDir + seg + ".txt";
-      sumTermsForEachRound(client, seg, outpath);
+      sumTermsForEachRound(client, seg, outpath, T);
     }
     
     //produce the aggregated file
-    sumTermsForEachRound(client, null, outDir + "agg.txt");
+    sumTermsForEachRound(client, null, outDir + "agg.txt", T);
   }
 
   public List<String> getSegList(Client client)
@@ -108,7 +109,7 @@ public class Counter {
     return segList;    
   }
 
-  public void sumTermsForEachRound(Client client, String seg, String outpath) {
+  public void sumTermsForEachRound(Client client, String seg, String outpath, double T) {
 
     Map<String, Integer> totalCounts = new HashMap<String, Integer>();
 
@@ -131,8 +132,8 @@ public class Counter {
         
         double nutch_score = (double) result.get("nutch_score");
         
-        if(nutch_score<0.001)   //similarity threshold
-          break;
+        if(nutch_score<T)   //similarity threshold
+          continue;
 
         String text = inlinks + "&&" + outlinks + "&&" + title;
         String[] linksTemrs = text.split("&&");
