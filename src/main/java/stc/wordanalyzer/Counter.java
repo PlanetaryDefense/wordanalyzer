@@ -44,9 +44,9 @@ public class Counter {
       "the team", "advertise", "recent changes", "rss feed", "publications", "glossary", "xml", "history", "english", "resources",
   "discussion"};
 
-  private String include_title = "1"; // need to be implemeted
-  private String include_anchor = "1"; // need to be implemeted
-  private String include_urls = "1"; // need to be implemeted
+  private String include_self = "1"; // need to be implemeted
+  private String include_in = "1"; // need to be implemeted
+  private String include_out = "1"; // need to be implemeted
 
   protected Client makeClient() throws IOException {
     String clusterName = "elasticsearch";
@@ -85,13 +85,13 @@ public class Counter {
 
     if (client != null) {
       System.out.println("ES client created successfully.");
-      counter.include_title = args[3];
-      counter.include_anchor = args[4];
-      counter.include_urls = args[5];
-      
+      counter.include_self = args[3];
+      counter.include_in = args[4];
+      counter.include_out = args[5];
+
       counter.sumTermsForAllNRound(client, args[0], Double.parseDouble(args[1]), Integer.parseInt(args[2]));
     }
-    
+
   }
 
   public void sumTermsForAllNRound(Client client, String outDir, double T, int roundNum)
@@ -174,9 +174,9 @@ public class Counter {
         String inurls = "";
         String outurls = "";
         String url = "";
-        
+
         //page title
-        if(include_title.equals("1"))
+        if(include_self.equals("1"))
         {
           title = (String) result.get("title");
           if(title!=null)
@@ -187,35 +187,29 @@ public class Counter {
               title = title + "&&";
             }
           }
-          
+
           url = (String) result.get("url");
           url = url.replace("/", "&&").replace(".", "&&");
           for(int w =0; w<2; w++)
           {
             url = url + "&&";
           }
-                    
+
+        }
+
+        if(include_in.equals("1"))
+        {
           inurls = (String) result.get("inlinks");
           if(inurls!=null)
             inurls = inurls.replace("/", "&&").replace(".", "&&");
-          
+
           inlinks = (String) result.get("anchor_inlinks");
         }
-        
-        //anchor text
-        if(include_anchor.equals("1"))
-        {
-          inlinks = (String) result.get("anchor_inlinks");
+
+        //various out text
+        if(include_out.equals("1"))
+        {         
           outlinks = (String) result.get("anchor_outlinks");
-        }
-
-        //various urls
-        if(include_urls.equals("1"))
-        {
-          inurls = (String) result.get("inlinks");
-          if(inurls!=null)
-            inurls = inurls.replace("/", "&&").replace(".", "&&");
-
           outurls = (String) result.get("outlinks");
           if(outurls!=null)
             outurls = outurls.replace("/", "&&").replace(".", "&&");
@@ -231,7 +225,8 @@ public class Counter {
         for (String term : linksTemrs) {
           term = term.toLowerCase().replaceAll("\\W", " ").replace("_", " ").trim();
           if(!term.equals("") && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term) && term.length()>1){
-            pageTerms.add(term);
+            if(!Character.isDigit(term.charAt(0)))
+              pageTerms.add(term);
           }
         }
 
