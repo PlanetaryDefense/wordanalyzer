@@ -32,12 +32,21 @@ public class Counter {
 
   private final String index = "nutch";
   private final String type = "doc";
-  private static final String stopwords[] = {"home", "contact", "image", "about", "navigation", "news", "event",
+  private static final String stopwords_1[] = {"home", "contact", "image", "about", "navigation", "news", "event",
       "copyright", "registration", "link", "search", "also", "contribution", "help", "page", "logo", "citation", 
-      "wiki"};
+      "wiki", "site map", "menu", "community", "media", "wiki", "alumni", "http", "www", "htm", "blog", "facebook",
+      "twitter", "youtube", "terms of use", "subscribe", "become", "education", "cookie", "google", "career", "vimeo",
+      "mail", "sign", "upload", "press", "featured", "skip", "404"};
 
-  public Counter() {
-  }
+  private static final String stopwords_2[] = {"en", "org", "php", "com", "rss", "gov", "doc", "asp", "tag", "people", "faq", "overview", "edu",
+      "null", "index", "instagram", "km", "yr", "net", "login", "log in", "forum", "kg", "staff", "video", "get involved",
+      "connect", "talk", "jobs", "ajax", "travel", "privacy policy", "talk", "donate", "volunteer", "explore", "categories",
+      "the team", "advertise", "recent changes", "rss feed", "publications", "glossary", "xml", "history", "english", "resources",
+  "discussion"};
+
+  private String include_title = "1"; // need to be implemeted
+  private String include_anchor = "1"; // need to be implemeted
+  private String include_urls = "1"; // need to be implemeted
 
   protected Client makeClient() throws IOException {
     String clusterName = "elasticsearch";
@@ -59,9 +68,9 @@ public class Counter {
 
   public static void main(String[] args) {
 
-    if(args.length<2)
+    if(args.length<3)
     {
-      System.out.println("Please input the output directory and score threshold!");
+      System.out.println("Please input the output directory, score threshold, and round number!");
       return;
     }
 
@@ -76,21 +85,32 @@ public class Counter {
 
     if (client != null) {
       System.out.println("ES client created successfully.");
-      counter.sumTermsForAllRound(client, args[0], Double.parseDouble(args[1]));
-    }
-  }
-
-  public void sumTermsForAllRound(Client client, String outDir, double T)
-  {
-    List<String> segList = getSegList(client);
-    for(String seg:segList)
-    {
-      String outpath = outDir + seg + ".txt";
-      sumTermsForEachRound(client, seg, outpath, T);
+      counter.include_title = args[3];
+      counter.include_anchor = args[4];
+      counter.include_urls = args[5];
+      
+      counter.sumTermsForAllNRound(client, args[0], Double.parseDouble(args[1]), Integer.parseInt(args[2]));
     }
     
+  }
+
+  public void sumTermsForAllNRound(Client client, String outDir, double T, int roundNum)
+  {
+    List<String> segList = getSegList(client);
+    List<String> output_segList = new ArrayList<>();
+    int i = 0;
+    for(String seg:segList)
+    {
+      if(i>roundNum)
+        break;
+      String outpath = outDir + seg + ".txt";
+      sumTermsForEachRound(client, seg, outpath, T, true, null);
+      output_segList.add(seg);
+      i++;
+    }
+
     //produce the aggregated file
-    sumTermsForEachRound(client, null, outDir + "agg.txt", T);
+    sumTermsForFNRound(client, output_segList, outDir + "agg.txt", T);
   }
 
   public List<String> getSegList(Client client)
@@ -109,9 +129,24 @@ public class Counter {
     return segList;    
   }
 
-  public void sumTermsForEachRound(Client client, String seg, String outpath, double T) {
+  public void sumTermsForFNRound(Client client, List<String> seglist, String outpath, double T)
+  {
+    Map<String, Integer> aggCounts = new HashMap<String, Integer>();  
+    for(String seg:seglist)
+    {
+      aggCounts = sumTermsForEachRound(client, seg, null, T, false, aggCounts);
+    }
+    Map<String, Integer> sortedCounts = Counter.sortByValue(aggCounts);
+    writeToFile(sortedCounts, outpath);
+  }
 
-    Map<String, Integer> totalCounts = new HashMap<String, Integer>();
+  public Map<String, Integer> sumTermsForEachRound(Client client, String seg, String outpath, double T, boolean output, 
+      Map<String, Integer> preMap) {
+    Map<String, Integer> totalCounts;
+    if(preMap == null)
+      totalCounts = new HashMap<String, Integer>();
+    else
+      totalCounts = preMap;
 
     QueryBuilder filterSearch = QueryBuilders.matchAllQuery();
     if(seg!=null)
@@ -125,21 +160,77 @@ public class Counter {
       for (SearchHit hit : scrollResp.getHits().getHits()) {
         Map<String, Object> result = hit.getSource();
 
+        String lang = (String) result.get("lang");
+
+        if(lang==null)
+          continue;
+        if(!lang.equals("en"))
+          continue;
+
         Set<String> pageTerms = new HashSet<String>();
-        String inlinks = (String) result.get("anchor_inlinks");
-        String outlinks = (String) result.get("anchor_outlinks");
-        String title = (String) result.get("title");
+        String inlinks = "";
+        String outlinks = "";
+        String title = "";
+        String inurls = "";
+        String outurls = "";
+        String url = "";
         
+        //page title
+        if(include_title.equals("1"))
+        {
+          title = (String) result.get("title");
+          if(title!=null)
+          {
+            title = title.replace("|", "&&");
+            for(int w =0; w<3; w++)
+            {
+              title = title + "&&";
+            }
+          }
+          
+          url = (String) result.get("url");
+          url = url.replace("/", "&&").replace(".", "&&");
+          for(int w =0; w<2; w++)
+          {
+            url = url + "&&";
+          }
+                    
+          inurls = (String) result.get("inlinks");
+          if(inurls!=null)
+            inurls = inurls.replace("/", "&&").replace(".", "&&");
+          
+          inlinks = (String) result.get("anchor_inlinks");
+        }
+        
+        //anchor text
+        if(include_anchor.equals("1"))
+        {
+          inlinks = (String) result.get("anchor_inlinks");
+          outlinks = (String) result.get("anchor_outlinks");
+        }
+
+        //various urls
+        if(include_urls.equals("1"))
+        {
+          inurls = (String) result.get("inlinks");
+          if(inurls!=null)
+            inurls = inurls.replace("/", "&&").replace(".", "&&");
+
+          outurls = (String) result.get("outlinks");
+          if(outurls!=null)
+            outurls = outurls.replace("/", "&&").replace(".", "&&");
+        }
+
         double nutch_score = (double) result.get("nutch_score");
-        
+
         if(nutch_score<T)   //similarity threshold
           continue;
 
-        String text = inlinks + "&&" + outlinks + "&&" + title;
+        String text = inlinks + "&&" + outlinks + "&&" + title + "&&" + inurls + "&&" + outurls + "&&" + url;
         String[] linksTemrs = text.split("&&");
         for (String term : linksTemrs) {
-          term = term.toLowerCase().trim();
-          if(!term.isEmpty() && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term) && term.length()>1){
+          term = term.toLowerCase().replaceAll("\\W", " ").replace("_", " ").trim();
+          if(!term.equals("") && term.matches(".*[a-zA-Z]+.*") && !isStopwords(term) && term.length()>1){
             pageTerms.add(term);
           }
         }
@@ -161,8 +252,13 @@ public class Counter {
       }
     }
 
-    Map<String, Integer> sortedCounts = Counter.sortByValue(totalCounts);
-    writeToFile(sortedCounts, outpath);
+    if(output)
+    {
+      Map<String, Integer> sortedCounts = Counter.sortByValue(totalCounts);
+      writeToFile(sortedCounts, outpath);
+    }
+
+    return totalCounts;
 
   }
 
@@ -222,9 +318,15 @@ public class Counter {
 
   public static boolean isStopwords(String str)
   {
-    for(String s: stopwords)
+    for(String s: stopwords_1)
     {
       if(str.contains(s))
+        return true;
+    }
+
+    for(String s: stopwords_2)
+    {
+      if(str.equals(s))
         return true;
     }
     return false;
